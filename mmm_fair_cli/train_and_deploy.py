@@ -8,7 +8,7 @@ import fairbench as fb
 from sklearn.tree import DecisionTreeClassifier
 
 # local imports
-from .data_process import data_uci
+from .data_process import data_uci, data_raw
 from .mammoth_csv import CSV
 from .mmm_fair import MMM_Fair
 from .mmm_fair_gb import MMM_Fair_GradientBoostedClassifier
@@ -273,25 +273,14 @@ def train(args):
             # -------------------------
             # Local CSV file fallback
             # -------------------------
-            raw_df = pd.read_csv(args.dataset)
-    
-            # Minimal auto-detection of numeric vs. categorical
-            numeric = [
-                col for col in raw_df.columns if pd.api.types.is_numeric_dtype(raw_df[col])
-            ]
-            categorical = [
-                col for col in raw_df.columns if col not in numeric and col != args.target
-            ]
     
             # Create the CSV object from mammoth_csv.py
             # We assume user-supplied --target is in raw_df
             label = raw_df[args.target]
     
-            data = CSV(
-                raw_df,
-                num=numeric,
-                cat=categorical,
-                labels=label,
+            data = data_raw(
+                dataset_name=dataset_name,
+                taeget=args.target,
             )
         else:
             # -------------------------
@@ -467,22 +456,8 @@ def train(args):
 
         except ValueError:
             # If it's not a float, treat it as a CSV path
-            test_df = pd.read_csv(args.test)
-            # Minimal numeric/categorical detection, build CSV instance
-            numeric_test = [
-                col
-                for col in test_df.columns
-                if pd.api.types.is_numeric_dtype(test_df[col])
-            ]
-            cat_test = [
-                col
-                for col in test_df.columns
-                if col not in numeric_test and col != args.target
-            ]
-            label_test = test_df[args.target]
-
-            data_test = CSV(
-                test_df, num=numeric_test, cat=cat_test, labels=label_test
+            data_test = data_raw(
+                dataset_name=args.test, target=args.target
             )
 
             if not list(data.df.columns) == list(data_test.data.columns):
