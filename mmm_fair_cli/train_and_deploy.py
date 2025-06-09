@@ -276,11 +276,10 @@ def train(args):
     
             # Create the CSV object from mammoth_csv.py
             # We assume user-supplied --target is in raw_df
-            label = raw_df[args.target]
     
             data = data_raw(
                 dataset_name=dataset_name,
-                taeget=args.target,
+                target=args.target,
             )
         else:
             # -------------------------
