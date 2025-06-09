@@ -54,8 +54,8 @@ def data_uci(
 
     csv_dataset = CSV(
         raw_data,
-        numeric=numeric,
-        categorical=categorical,
+        num=numeric,
+        cat=categorical,
         labels=label,
     )
     csv_dataset.description = OrderedDict(
@@ -104,8 +104,8 @@ def data_local(
 
     csv_dataset = CSV(
         raw_data,
-        numeric=numeric,
-        categorical=categorical,
+        num=numeric,
+        cat=categorical,
         labels=label,
     )
     return csv_dataset

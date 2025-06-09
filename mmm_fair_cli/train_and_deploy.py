@@ -289,8 +289,8 @@ def train(args):
     
             data = CSV(
                 raw_df,
-                numeric=numeric,
-                categorical=categorical,
+                num=numeric,
+                cat=categorical,
                 labels=label,
             )
         else:
@@ -314,7 +314,7 @@ def train(args):
 
     for col_index, (col, val) in enumerate(zip(args.prots, args.nprotgs)):
         # **Step 1: Check if col is in dataset, replace if needed**
-        if col not in data.data.columns:
+        if col not in data.df.columns:
             dataset_name = args.dataset.lower()
 
             if dataset_name in default_data_setting:
@@ -338,7 +338,7 @@ def train(args):
 
             else:
                 # If dataset is not known in default_data_setting, fall back to first categorical column
-                categorical_cols = data.data.select_dtypes(
+                categorical_cols = data.df.select_dtypes(
                     include=["object", "category"]
                 ).columns
                 if len(categorical_cols) == 0:
@@ -353,28 +353,28 @@ def train(args):
         sensitives.append(col)
 
         # **Step 2: Process numerical columns**
-        if pd.api.types.is_numeric_dtype(data.data[col]):
+        if pd.api.types.is_numeric_dtype(data.df[col]):
             parsed_value = parse_numeric_input(val)
             if isinstance(parsed_value, tuple):
                 if (
-                    parsed_value[0] < data.data[col].min()
-                    or parsed_value[1] > data.data[col].max()
+                    parsed_value[0] < data.df[col].min()
+                    or parsed_value[1] > data.df[col].max()
                 ):
                     raise ValueError(
-                        f"{col} range '{val}' is outside dataset range [{data.data[col].min()}, {data.data[col].max()}]."
+                        f"{col} range '{val}' is outside dataset range [{data.df[col].min()}, {data.df[col].max()}]."
                     )
             else:  # If it's a single numeric value
                 if (
-                    parsed_value < data.data[col].min()
-                    or parsed_value > data.data[col].max()
+                    parsed_value < data.df[col].min()
+                    or parsed_value > data.df[col].max()
                 ):
                     raise ValueError(
-                        f"Numeric value '{val}' is outside dataset range [{data.data[col].min()}, {data.data[col].max()}]."
+                        f"Numeric value '{val}' is outside dataset range [{data.df[col].min()}, {data.df[col].max()}]."
                     )
 
         # **Step 3: Process categorical columns**
         else:
-            unique_vals = data.data[col].unique()
+            unique_vals = data.df[col].unique()
             if val not in unique_vals:
                 if len(unique_vals) == 0:
                     raise ValueError(
@@ -419,7 +419,10 @@ def train(args):
         if args.early_stop == True:
             mmm_params["early_stopping"] = True
     # 3. Convert label array if needed
-    y = data.labels["label"].to_numpy()
+    binary_y = data.labels.columns
+    one_hot_df = pd.DataFrame(binary_y)
+    y = one_hot_df.idxmax(axis=1).to_numpy()
+    
     if args.dataset.lower() == "adult":
         # Just an example if you want to transform e.g. "."
         y = np.array([s.replace(".", "") for s in y])
@@ -430,7 +433,7 @@ def train(args):
     y = (y == pos_class).astype(int)
 
     # 4. Get feature matrix (some users do data.to_pred([...]) or data.to_features([...]))
-    X = data.to_pred(sensitive=sensitives)  # or however you define
+    X = data.to_pred(sensitives)  # or however you define
 
     # mmm_classifier = MMM_Fair(**mmm_params)
 
@@ -447,10 +450,10 @@ def train(args):
             )
 
             saIndex_train, saValue_train = build_sensitives(
-                data.data.iloc[id_train], args.prots, args.nprotgs
+                data.df.iloc[id_train], args.prots, args.nprotgs
             )
             saIndex_test, _ = build_sensitives(
-                data.data.iloc[id_test], args.prots, args.nprotgs
+                data.df.iloc[id_test], args.prots, args.nprotgs
             )
 
             mmm_params["saIndex"] = saIndex_train
@@ -479,21 +482,24 @@ def train(args):
             label_test = test_df[args.target]
 
             data_test = CSV(
-                test_df, numeric=numeric_test, categorical=cat_test, labels=label_test
+                test_df, num=numeric_test, cat=cat_test, labels=label_test
             )
 
-            if not list(data.data.columns) == list(data_test.data.columns):
+            if not list(data.df.columns) == list(data_test.data.columns):
                 raise ValueError(
                     "Mismatch between train and test columns!\n"
-                    f"Train columns: {list(data.data.columns)}\n"
+                    f"Train columns: {list(data.df.columns)}\n"
                     f"Test columns: {list(data_test.data.columns)}"
                 )
-            X_test = data_test.to_pred(sensitive=sensitives)
-            y_test = data_test.labels["label"].to_numpy()
+            X_test = data_test.to_pred(sensitives)
+            binary_y = data_test.labels.columns
+            one_hot_df = pd.DataFrame(binary_y)
+            y_test = one_hot_df.idxmax(axis=1).to_numpy()
+            #y_test = data_test.labels["label"].to_numpy()
             # y_pred = mmm_classifier.predict(X_test)
             # y_true=y_test
             # Train on entire main data
-            saIndex, saValue = build_sensitives(data.data, args.prots, args.nprotgs)
+            saIndex, saValue = build_sensitives(data.df, args.prots, args.nprotgs)
             saIndex_test, _ = build_sensitives(data_test.data, args.prots, args.nprotgs)
 
             mmm_params["saIndex"] = saIndex
@@ -506,7 +512,7 @@ def train(args):
 
             mmm_classifier.fit(X, y)
     else:
-        saIndex, saValue = build_sensitives(data.data, args.prots, args.nprotgs)
+        saIndex, saValue = build_sensitives(data.df, args.prots, args.nprotgs)
         saIndex_test = saIndex
         mmm_params["saIndex"] = saIndex
         mmm_params["saValue"] = saValue

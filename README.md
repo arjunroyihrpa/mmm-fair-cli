@@ -34,7 +34,6 @@ python -m mmm_fair_cli.train_and_deploy \
   --prots prot_1 prot_2 \
   --nprotgs npg1 npg2 \
   --constraint DP \
-  --alpha 0.5 \
   --early_stop True \
   --n_learners 100 \
   --deploy pickle \
