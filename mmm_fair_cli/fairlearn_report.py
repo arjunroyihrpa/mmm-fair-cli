@@ -11,7 +11,23 @@ import plotly.io as pio
 from rich.console import Console
 console = Console()
 
+import webbrowser
+import tempfile
+import os
 
+import textwrap
+
+def wrap_label(lbl, width):
+    # Always treat lbl as a string
+    text = str(lbl)
+    return "\n".join(textwrap.wrap(text, width))
+
+
+def render_html(html_content, filename="fairness_report.html"):
+    with tempfile.NamedTemporaryFile("w", delete=False, suffix=".html", encoding="utf-8") as f:
+        f.write(html_content)
+        file_path = f.name
+    webbrowser.open("file://" + os.path.realpath(file_path))
 
 def explaination_text():
     explanation_html = """ 
@@ -74,7 +90,7 @@ def explaination_text():
 
 
 
-def show_fairlearn_report(by_group, scalar_metrics):
+def show_fairlearn_report(by_group, scalar_metrics, group_map=None):
     out = ""
 
     out += "\n[bold blue]>>> Group-wise[/] [blue]Fairness Metrics <<<[/]\n\n"
@@ -82,7 +98,11 @@ def show_fairlearn_report(by_group, scalar_metrics):
     df = by_group.copy().T
     df = df.reset_index()
     df.rename(columns={'index': 'Metric'}, inplace=True)
-    df.columns = ['Metric'] + [f"Group: {col}" for col in df.columns[1:]]
+
+    if group_map is None:
+        group_map = {}
+
+    df.columns = ["Metric"] + [wrap_label(group_map.get(col, col), col_widths[i])for i, col in enumerate(df.columns[1:], start=1)]
 
     # Set widths to match formatter
     col_widths = [22] + [10] * (df.shape[1] - 1)
@@ -117,7 +137,7 @@ def show_fairlearn_report(by_group, scalar_metrics):
     return out
 
 def generate_reports_from_fairlearn(
-    report_type, sensitives, mmm_classifier, saIndex_test, y_pred, y_test, launch_browser=True
+    report_type, sensitives, mmm_classifier, saIndex_test, y_pred, y_test, launch_browser=True, group_mappings=None
 ):
     report_type = report_type.lower()
     if report_type not in {"console", "table", "html"}:
@@ -133,6 +153,11 @@ def generate_reports_from_fairlearn(
 
     for i, attr in enumerate(sensitives):
         sensitive_column = saIndex_test[:, i]
+
+        # Invert group mapping so you can label 0 → "fitz12", 1 → "fitz34", etc.
+        group_map = {}
+        if group_mappings and attr in group_mappings:
+            group_map = {v: k for k, v in group_mappings[attr].items()}
 
         metric_frame = MetricFrame(
             metrics={
@@ -157,48 +182,70 @@ def generate_reports_from_fairlearn(
         }
 
         if report_type == "console":
-            out += f"[bold magenta]=== Fairlearn Fairness Report for the Protected Attribute: {attr} ===[/]\n"
+            out += f"[bold magenta]=== Fairness Report for the Protected Attribute: {attr} ===[/]\n"
             out += "=" * 67 + "\n"
             out += show_fairlearn_report(
                 by_group=metric_frame.by_group,
-                scalar_metrics=scalar_metrics
+                scalar_metrics=scalar_metrics,
+                group_map=group_map
             )
+
             out += "=" * 67 + "\n"
 
         elif report_type == "table":
-            # Prepare group-wise table
+            # Prepare DataFrame
             df = metric_frame.by_group.copy().T.reset_index()
             df.rename(columns={'index': 'Metric'}, inplace=True)
-            df.columns = ["Metric"] + [f"Group: {col}" for col in df.columns[1:]]
 
-            # Compute dynamic width for first column and fixed width for the rest
+            # Compute widths
+            #    - Metric column grows to fit its longest name + 2 spaces
             first_col = df.columns[0]
-            first_width = max(len(str(val)) for val in df[first_col].tolist() + [first_col]) + 2
-            numeric_width = 12  # enough to fit .6f values comfortably
-
+            first_width = max(df[first_col].astype(str).map(len).max(), len(first_col)) + 2
+            #    - All group/value columns fixed to len("0.904255") + 2 = 10
+            numeric_width = len(f"{0.904255:.6f}") + 2  # → 10
             col_widths = [first_width] + [numeric_width] * (df.shape[1] - 1)
 
+            # Wrap each group label into ≤2 lines
+            raw_labels = [group_map.get(col, col) for col in df.columns[1:]]
+            wrapped = [wrap_label(lbl, numeric_width) for lbl in raw_labels]
+            split_lbls = [lbl.split("\n") for lbl in wrapped]
+            max_lines = max(len(lines) for lines in split_lbls)
+            for lines in split_lbls:
+                lines += [""] * (max_lines - len(lines))
 
-            # Header row
-            header = "".join(f"{col:<{w}}" for col, w in zip(df.columns, col_widths))
+            # Build header‐block (multi‐line), **no leading blank** before each group col
+            header_lines = []
+            for line_idx in range(max_lines):
+                # Start with the Metric header cell (blank for header)
+                line = f"{'Metric':<{first_width}}" if line_idx == 0 else " " * first_width
+                # Then each group header line, left‐aligned in its numeric column
+                for col_idx in range(len(split_lbls)):
+                    line += f"{split_lbls[col_idx][line_idx]:<{numeric_width}}"
+                header_lines.append(line)
 
-            # Data rows
-            rows = []
+            # Separator under header
+            sep = "─" * (first_width + numeric_width * len(split_lbls))
+
+            # Build data rows using exact same widths
+            data_rows = []
             for _, row in df.iterrows():
-                line = "".join(
-                    f"{float(val):<{w}.6f}" if isinstance(val, (int, float, np.number)) else f"{str(val):<{w}}"
-                    for val, w in zip(row, col_widths)
-                )
-                rows.append(line)
+                line = f"{str(row.iloc[0]):<{first_width}}"
+                for val in row.iloc[1:]:
+                    line += f"{val:<{numeric_width}.6f}"
+                data_rows.append(line)
 
-            group_block = "\n".join([header, "─" * (len(header)-4)] + rows + ["─" * (len(header)-4)])
+            # Assemble group_block
+            group_block = "\n".join(header_lines + [sep] + data_rows + [sep])
 
-            # Scalar metrics (left-aligned too)
-            scalar_header = f"{'Metric':<32} {'Value'}"
-            scalar_lines = [scalar_header, "─" * 41]
+            # Scalar metrics (left-aligned under Metric col)
+            scalar_lines = []
+            scalar_header = f"{'Metric':<{first_width}} {'Value'}"
+            scalar_sep    = "─" * (first_width + 1 + numeric_width)
+            # scalar_lines.append(scalar_header)
+            # scalar_lines.append(scalar_sep)
             for metric, value in scalar_metrics.items():
-                scalar_lines.append(f"{metric:<32} {value:.6f}")
-            scalar_lines.append("─" * 41)
+                scalar_lines.append(f"{metric:<{first_width}}: {value:.6f}")
+            # scalar_lines.append(scalar_sep)
             scalar_block = "\n".join(scalar_lines)
 
             html_section = f"""
@@ -236,7 +283,7 @@ def generate_reports_from_fairlearn(
             for group in groups:
                 values = group_data[group].tolist()
                 group_fig.add_trace(go.Bar(
-                    name=f"Group: {group}",
+                    name=f"{group_map.get(group, group)}",
                     y=metrics,        # metrics on Y-axis
                     x=values,         # values for this group
                     orientation='h',
@@ -318,7 +365,7 @@ def generate_reports_from_fairlearn(
         <html>
             <head>
                 <meta charset="utf-8">
-                <title>Fairlearn Report</title>
+                <title>Report</title>
                 <style>
                     body {{
                         font-family: monospace;
@@ -357,16 +404,16 @@ def generate_reports_from_fairlearn(
             </head>
             <body>
                 <div class="container">
-                    <div class="report">
-                        <div style="color: #2e1065; font-weight: bold; margin-left: 80px;">
-                            <h1>FairLearn Fairness Report</h1>
+                    <div class="report" style="width: 50%; overflow-x: auto; white-space: nowrap;">
+                        <div style="color: #2e1065; font-weight: bold; margin-left: 80px;" margin-right: 20px;">
+                            <h1>Fairness Report</h1>
                         </div>
                         {''.join(html_blocks)}
                         <div style="color: #2e1065; font-weight: bold; margin-left: 25px;">
                             <div style="white-space: pre; overflow: hidden; text-overflow: ellipsis;">{"═" * 48}<br></div>
                         </div>
                     </div>
-                    <div class="explanation">
+                    <div class="explanation" style="width: 50%; padding-left: 20px; overflow-x: auto; word-break: break-all;">
                         {explanation_html}
                     </div>
                 </div>
@@ -383,7 +430,7 @@ def generate_reports_from_fairlearn(
         <html>
         <head>
             <meta charset="utf-8">
-            <title>Fairlearn Plot Report</title>
+            <title>Plot Report</title>
             <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
             <style>
                 body {{
@@ -425,7 +472,7 @@ def generate_reports_from_fairlearn(
             <div class="container">
                 <div class="report">
                     <div style="color: #2e1065; font-weight: bold; margin-left: 45px;">
-                        <h1>FairLearn Fairness Report: Plots</h1>
+                        <h1>Fairness Report: Plots</h1>
                     </div>
                     {"".join(plot_sections)}
                     <div style="color: #2e1065; font-weight: bold; margin-left: 25px;">
