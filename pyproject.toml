@@ -10,7 +10,7 @@ include = ["mmm_fair_cli*"]
 
 [project]
 name = "mmm-fair-cli"
-version = "1.0.121"
+version = "1.1.0"
 description = "CLI-only version of the MMM-Fair boosting classifier"
 readme = "README.md"
 authors = [
