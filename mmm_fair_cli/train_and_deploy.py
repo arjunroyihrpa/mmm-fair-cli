@@ -501,7 +501,10 @@ def train(args):
     # if args.classifier not in ["mmm_fair_gbt","mmm-fair-gbt","mmm_gbt", "mmm-gbt"]:
     mmm_classifier.update_theta(criteria="all")
 
-    return mmm_classifier, X_test, y_test, saIndex_test, sensitives
+    # If you split, use only the test‐slice of your DataFrame; otherwise use the full df
+    df_test = data.df.iloc[id_test] if args.test is not None else data.df
+    return mmm_classifier, X_test, y_test, saIndex_test, sensitives, df_test
+
 
     # 7. (Optional) FairBench reporting
 
@@ -510,16 +513,26 @@ def train(args):
 
 
 def report_card(
-    args, mmm_classifier, SI, sensitives, xtest, ytest, card=True, html=False
+    args, mmm_classifier, SI, sensitives, xtest, ytest, df_test, card=True, html=False
 ):
     ypred = mmm_classifier.predict(xtest)
+
+    # raw_sa will be an (n_samples × n_attributes) array of your actual labels
+    raw_sa = df_test[sensitives].to_numpy()
+
+    #Build your mapping of raw value → integer for each attr
+    group_mappings = {}
+    for attr in sensitives:
+        vals = df_test[attr].unique().tolist()
+        group_mappings[attr] = {val: i for i, val in enumerate(vals)}
+
     if card:
         if args.report_engine == 'fairbench':
             report = generate_reports(
                 report_type=args.report_type,
                 sensitives=sensitives,
                 mmm_classifier=mmm_classifier,
-                saIndex_test=SI,
+                saIndex_test=raw_sa,
                 y_pred=ypred,
                 y_test=ytest,
                 html=html,
@@ -529,9 +542,10 @@ def report_card(
                 report_type=args.report_type,
                 sensitives=sensitives,
                 mmm_classifier=mmm_classifier,
-                saIndex_test=SI,
+                saIndex_test=raw_sa,
                 y_pred=ypred,
                 y_test=ytest,
+                group_mappings=group_mappings,
             )
     if args.moo_vis:
         mmm_classifier.see_pareto()
@@ -572,6 +586,7 @@ def report_card(
                             saIndex_test=SI,
                             y_pred=ypred,
                             y_test=ytest,
+                            group_mappings=group_mappings,
                         )
                     break  # Exit loop after successful update
                 else:
@@ -588,7 +603,7 @@ def report_card(
 
 def deploy(stype, mmm_classifier, X, clf_name, path):
     # 8. Deployment
-    if stype.lower() not in ("onnx", "pickle"):
+    if stype is None or stype.lower() not in ("onnx", "pickle"):
         # If user didn't provide or gave something unrecognized => prompt
         while True:
             user_choice = input(
@@ -732,9 +747,9 @@ def main():
     
     args = parser.parse_args()
 
-    mmm_classifier, X_test, y_test, saIndex_test, sensitives = train(args)
+    mmm_classifier, X_test, y_test, saIndex_test, sensitives, df_test = train(args)
     # y_pred = mmm_classifier.predict(X_test)
-    plots = report_card(args, mmm_classifier, saIndex_test, sensitives, X_test, y_test)
+    plots = report_card(args, mmm_classifier, saIndex_test, sensitives, X_test, y_test, df_test)
     deploy(args.deploy, mmm_classifier, X_test, args.classifier, args.save_path)
 
 
