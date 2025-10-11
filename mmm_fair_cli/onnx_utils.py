@@ -27,7 +27,7 @@ class ONNX_MMM():
         """assert (
             sensitive is None or len(sensitive) == 0
         ), "ONNXEnsemble can only be called with no declared sensitive attributes" """
-        theta = theta if self.theta is None else self.theta
+        theta = theta if self.theta is not None else self.theta
         sensitive = sensitive if self.sensitive is None else self.sensitive
         X = dataset.to_pred(sensitive)
         X = X.astype(np.float32)
