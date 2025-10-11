@@ -118,7 +118,7 @@ def plot2d(
     #  Return HTML if requested
     if html:
         return fig.to_html(
-            full_html=False, include_plotlyjs="cdn"
+            full_html=False, include_plotlyjs="cdn", config={"responsive": True}
         )  # Return HTML representation of plot
     else:
         fig.show()  # Display the plot normally
@@ -227,7 +227,7 @@ def plot3d(
     # **NEW FEATURE**: Return HTML if requested
     if html:
         return fig.to_html(
-            full_html=False, include_plotlyjs="cdn"
+            full_html=False, include_plotlyjs="cdn", config={"responsive": True}
         )  # Return HTML representation of plot
     else:
         fig.show()  # Display the plot normally
@@ -354,6 +354,6 @@ def plot_spider(
     fig.update_layout(showlegend=False)
 
     if html:
-        return fig.to_html(full_html=False, include_plotlyjs="cdn")
+        return fig.to_html(full_html=False, include_plotlyjs="cdn", config={"responsive": True})
     else:
         fig.show()
